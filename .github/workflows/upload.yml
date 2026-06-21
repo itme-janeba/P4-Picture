@@ -1,0 +1,106 @@
+name: YouTube Video Upload
+
+on:
+  workflow_dispatch:  # Manual trigger
+  push:
+    branches:
+      - main
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 hours max for large batches
+    
+    steps:
+      - name: 🔥 Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: 📋 Check Files
+        run: |
+          echo "📋 Checking required files..."
+          
+          if [ ! -f "youtube_token.pickle" ]; then
+            echo "❌ youtube_token.pickle not found!"
+            exit 1
+          fi
+          
+          if [ ! -f "videos.txt" ]; then
+            echo "❌ videos.txt not found!"
+            exit 1
+          fi
+          
+          if [ ! -f "uploader.py" ]; then
+            echo "❌ uploader.py not found!"
+            exit 1
+          fi
+          
+          echo "✅ All required files present"
+          
+          echo ""
+          echo "📹 Video Links Count:"
+          grep -v '^#' videos.txt | grep -v '^$' | wc -l
+          
+          echo ""
+          echo "📂 Repository Files:"
+          ls -lh
+      
+      - name: 🚀 Run Upload (All Videos)
+        run: |
+          echo "🎬 Starting upload process..."
+          echo "📌 Will upload ALL remaining videos"
+          echo ""
+          python uploader.py
+        env:
+          PYTHONUNBUFFERED: 1
+      
+      - name: 💾 Save Progress
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upload-tracker
+          path: |
+            tracker.json
+            ip_log_*.txt
+          retention-days: 90
+      
+      - name: 📊 Upload Summary
+        if: always()
+        run: |
+          echo "## 📊 Upload Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "tracker.json" ]; then
+            echo "### Progress:" >> $GITHUB_STEP_SUMMARY
+            echo '```json' >> $GITHUB_STEP_SUMMARY
+            cat tracker.json >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No tracker file found" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Upload complete!" >> $GITHUB_STEP_SUMMARY
+      
+      - name: 📤 Commit Progress (Optional)
+        if: success()
+        continue-on-error: true
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          if [ -f "tracker.json" ]; then
+            git add tracker.json
+            git diff --staged --quiet || git commit -m "📊 Update upload progress [skip ci]"
+            git push
+          fi
